@@ -1,0 +1,8 @@
+# Processed Meeting Data Directory
+
+This directory contains processed meeting data:
+
+- `processed_meetings.json` - Structured meeting content
+- `meeting_chunks.json` - Chunked content ready for embeddings
+
+These files are generated automatically by the pipeline.

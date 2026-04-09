@@ -1,0 +1,59 @@
+# Raw Meeting Data Directory
+
+Place your meeting transcripts and summaries here.
+
+Supported formats:
+- .txt files
+- .json files  
+- .md files
+- .docx files
+
+## Example JSON structure:
+
+```json
+{
+  "title": "Enterprise Client Discovery Call",
+  "date": "2024-01-15",
+  "client": "TechCorp Inc",
+  "participants": ["John Smith (Sales)", "Jane Doe (Client)", "Mike Johnson (Technical)"],
+  "summary": "Initial discovery call with enterprise client...",
+  "key_points": [
+    "Budget range: $50k-100k",
+    "Timeline: Q2 implementation",
+    "Main concern: data security"
+  ],
+  "objections": "Concerned about integration complexity",
+  "pricing_discussion": "Discussed enterprise tier pricing",
+  "next_steps": ["Send security documentation", "Schedule technical demo"]
+}
+```
+
+## Example Text format:
+
+```
+# Meeting: TechCorp Discovery Call
+
+## Date
+2024-01-15
+
+## Client  
+TechCorp Inc
+
+## Participants
+John Smith (Sales), Jane Doe (Client)
+
+## Summary
+Initial discovery call with enterprise client...
+
+## Key Points
+- Budget range: $50k-100k
+- Timeline: Q2 implementation  
+- Main concern: data security
+
+## Objections
+Concerned about integration complexity
+
+## Next Steps
+- Send security documentation
+- Schedule technical demo
+```

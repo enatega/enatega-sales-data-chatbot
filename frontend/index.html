@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Meeting Assistant</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 Sales Meeting Assistant</h1>
+            <p>Query insights from previous client meetings</p>
+        </header>
+        
+        <div class="chat-container">
+            <div id="chat-messages" class="chat-messages">
+                <div class="message bot-message">
+                    <div class="message-content">
+                        <p>Hello! I'm your Sales Meeting Assistant. I can help you find information from previous client meetings.</p>
+                        <p>Try asking me about:</p>
+                        <ul>
+                            <li>Pricing objections and concerns</li>
+                            <li>Feature requests from clients</li>
+                            <li>Competitor comparisons</li>
+                            <li>Implementation concerns</li>
+                            <li>Industry-specific requirements</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-input-container">
+                <div class="input-group">
+                    <input 
+                        type="text" 
+                        id="message-input" 
+                        placeholder="Ask about previous client meetings..."
+                        maxlength="500"
+                    >
+                    <button id="send-button" type="button">
+                        <span>Send</span>
+                    </button>
+                </div>
+                <div class="input-info">
+                    <small>Press Enter to send • <span id="char-count">0</span>/500 characters</small>
+                </div>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading hidden">
+            <div class="loading-spinner"></div>
+            <span>Searching meeting data...</span>
+        </div>
+    </div>
+
+    <script>
+        // Set your Railway backend URL here
+        window.CHATBOT_API_URL = 'https://your-app.up.railway.app';
+    </script>
+    <script src="/app.js"></script>
+</body>
+</html>
