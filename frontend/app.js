@@ -169,7 +169,8 @@ class SalesChatbot {
 // Widget version for embedding
 class SalesChatbotWidget {
     static init(config = {}) {
-        this.endpoint = config.endpoint || (window.CHATBOT_API_URL ? window.CHATBOT_API_URL + '/chat' : '/chat');
+        const defaultConfig = {
+            endpoint: window.CHATBOT_API_URL ? window.CHATBOT_API_URL + '/chat' : '/chat',
             title: 'Sales Assistant 🤖',
             subtitle: 'Query previous client meetings',
             position: 'bottom-right'
