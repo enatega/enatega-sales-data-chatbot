@@ -1,6 +1,7 @@
 import os
 import time
-from typing import List, Optional
+from pathlib import Path
+from typing import List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -59,6 +60,15 @@ llm = ChatOpenAI(
 
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, timeout=30)
 
+# Load master summary once at startup
+MASTER_SUMMARY = ""
+master_summary_path = Path("data/clean/master_summary.txt")
+if master_summary_path.exists():
+    MASTER_SUMMARY = master_summary_path.read_text(encoding="utf-8")
+    print(f"✅ Master summary loaded: {len(MASTER_SUMMARY)} characters")
+else:
+    print("⚠️ Master summary not found. Run generate_master_summary.py first.")
+
 # Session memory storage
 session_memories: dict[str, list] = {}
 
@@ -67,38 +77,42 @@ def get_history(session_id: str) -> list:
         session_memories[session_id] = []
     return session_memories[session_id]
 
-# ---------- Prompt Template ----------
-SALES_PROMPT_TEMPLATE = (
-    "You are a Sales Assistant AI that helps sales representatives query information from previous client meetings. "
-    "You have access to meeting transcripts, summaries, and client interactions to provide insights about:\n\n"
-    
-    "• Client objections, concerns, and feedback\n"
-    "• Pricing discussions and negotiations\n"
-    "• Feature requests and product feedback\n"
-    "• Competitor comparisons mentioned by clients\n"
-    "• Implementation concerns and technical questions\n"
-    "• Industry-specific requirements and use cases\n"
-    "• Decision-making processes and timelines\n"
-    "• Stakeholder involvement and buying committees\n\n"
-    
-    "RESPONSE GUIDELINES:\n"
-    "• Provide specific, actionable insights from the meeting data\n"
-    "• When possible, reference specific client meetings or contexts\n"
-    "• Highlight patterns across multiple client interactions\n"
-    "• Be concise but comprehensive in your responses\n"
-    "• If you don't have relevant information, clearly state that\n"
-    "• Focus on helping sales reps prepare for future meetings\n"
-    "• Suggest follow-up questions or strategies when appropriate\n\n"
-    
-    "EXAMPLE RESPONSES:\n"
-    "• 'Based on 3 recent enterprise meetings, clients commonly ask about data security certifications...'\n"
-    "• 'In the TechCorp meeting last month, they mentioned budget constraints around Q4...'\n"
-    "• 'Several healthcare clients have requested HIPAA compliance documentation...'\n\n"
-    
-    "Context from previous meetings:\n{context}\n\n"
+# ---------- Query classifier ----------
+STRATEGIC_KEYWORDS = [
+    "strategy", "strategies", "recommend", "suggestion", "suggest", "improve", "improvement",
+    "pattern", "trend", "common", "most", "top", "best", "worst", "typical", "usually",
+    "objection", "objections", "pricing", "price", "feature", "features", "competitor",
+    "competitors", "region", "industry", "industries", "segment", "marketing", "pitch",
+    "plan", "approach", "how should", "what should", "why do", "which clients",
+    "overall", "across", "all clients", "all meetings", "generally", "insight", "insights",
+    "win", "lose", "lost", "deal", "convert", "conversion", "sales cycle", "follow up"
+]
+
+def is_strategic_question(message: str) -> bool:
+    msg = message.lower()
+    return any(kw in msg for kw in STRATEGIC_KEYWORDS)
+
+# ---------- Prompt Templates ----------
+STRATEGIC_PROMPT = (
+    "You are an expert Sales Strategist AI for Enatega — a food delivery platform solution.\n"
+    "You have comprehensive knowledge from 250+ real client sales meetings summarized below.\n\n"
+    "Use this knowledge to give specific, actionable, data-driven answers.\n"
+    "Reference patterns, client names, regions, and real examples from the data.\n"
+    "If asked for a plan or strategy, provide structured step-by-step guidance.\n\n"
+    "KNOWLEDGE BASE FROM 250+ MEETINGS:\n{master_summary}\n\n"
     "Chat History:\n{chat_history}\n\n"
-    "Sales Rep Question: {question}\n"
-    "Assistant:"
+    "Question: {question}\n"
+    "Answer:"
+)
+
+SPECIFIC_PROMPT = (
+    "You are a Sales Assistant AI for Enatega — a food delivery platform solution.\n"
+    "Answer the question using the relevant meeting excerpts provided below.\n"
+    "Be specific, reference client names and meetings where relevant.\n\n"
+    "Relevant Meeting Excerpts:\n{context}\n\n"
+    "Chat History:\n{chat_history}\n\n"
+    "Question: {question}\n"
+    "Answer:"
 )
 
 # ---------- request/response ----------
@@ -115,106 +129,72 @@ class ChatResp(BaseModel):
 @app.post("/chat", response_model=ChatResp)
 async def chat_endpoint(req: ChatReq):
     start_time = time.time()
-    
-    try:
-        # Simple similarity search using qdrant client directly
-        print(f"Searching for: {req.message}")
-        
-        try:
-            query_vector = embeddings.embed_query(req.message)
-            print("Query vector created successfully")
-        except Exception as embed_error:
-            print(f"Embedding error: {embed_error}")
-            raise HTTPException(status_code=500, detail=f"Embedding failed: {str(embed_error)}")
-        
-        try:
-            search_result = qdrant_client.query_points(
-                collection_name=COLLECTION_NAME,
-                query=query_vector,
-                limit=5
-            ).points
-            print(f"Found {len(search_result)} results")
-        except Exception as search_error:
-            print(f"Search error: {search_error}")
-            raise HTTPException(status_code=500, detail=f"Search failed: {str(search_error)}")
-        
-        # Extract content and metadata from search results
-        docs = []
-        sources = []
-        
-        for hit in search_result:
-            # Debug: print the structure
-            print(f"Hit payload keys: {hit.payload.keys() if hit.payload else 'No payload'}")
-            
-            # Try different payload structures
-            content = ""
-            metadata = {}
-            
-            if hit.payload:
-                # Try direct content access
-                content = hit.payload.get('page_content', '') or hit.payload.get('content', '')
-                
-                # Try nested metadata
-                if 'metadata' in hit.payload:
-                    metadata = hit.payload['metadata']
-                else:
-                    # Use payload directly as metadata
-                    metadata = hit.payload
-            
-            if content:
-                docs.append(content)
-                
-            # Extract filename from metadata
-            filename = metadata.get('filename', metadata.get('source', 'Unknown'))
-            if filename and filename != 'Unknown':
-                sources.append(filename)
-        
-        # Create context from documents
-        context = "\n\n".join([doc for doc in docs if doc.strip()])
-        
-        # If no context found, provide a helpful message
-        if not context.strip():
-            context = "No relevant meeting data found for this query."
-        
-        # Get history for this session
-        history = get_history(req.session_id)
-        history_text = "".join([f"{m['role']}: {m['content']}\n" for m in history[-10:]])
 
-        # Create the prompt
-        full_prompt = SALES_PROMPT_TEMPLATE.format(
-            context=context,
-            chat_history=history_text,
-            question=req.message
-        )
-        
-        # Get response from LLM
-        print("Sending to LLM...")
+    try:
+        history = get_history(req.session_id)
+        history_text = "".join([f"{m['role']}: {m['content']}\n" for m in history[-6:]])
+        sources = []
+        used_chunks = 0
+
+        if is_strategic_question(req.message):
+            # --- STRATEGIC MODE: use master summary ---
+            print(f"[STRATEGIC] {req.message}")
+            full_prompt = STRATEGIC_PROMPT.format(
+                master_summary=MASTER_SUMMARY,
+                chat_history=history_text,
+                question=req.message
+            )
+            used_chunks = 51  # all batches
+        else:
+            # --- SPECIFIC MODE: semantic search ---
+            print(f"[SPECIFIC] {req.message}")
+            try:
+                query_vector = embeddings.embed_query(req.message)
+                search_result = qdrant_client.query_points(
+                    collection_name=COLLECTION_NAME,
+                    query=query_vector,
+                    limit=10
+                ).points
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+            docs = []
+            for hit in search_result:
+                payload = hit.payload or {}
+                content = payload.get('page_content', '') or payload.get('content', '')
+                meta = payload.get('metadata', payload)
+                if content:
+                    docs.append(content)
+                filename = meta.get('filename', meta.get('source', ''))
+                if filename:
+                    sources.append(filename)
+
+            context = "\n\n".join([d for d in docs if d.strip()]) or "No relevant meeting data found."
+            used_chunks = len(docs)
+            full_prompt = SPECIFIC_PROMPT.format(
+                context=context,
+                chat_history=history_text,
+                question=req.message
+            )
+
         try:
             response = llm.invoke(full_prompt).content
-            print("LLM response received")
-        except Exception as llm_error:
-            print(f"LLM error: {llm_error}")
-            response = f"I found {len(docs)} relevant meeting excerpts but encountered an issue. Sources: {', '.join(sources[:3]) if sources else 'your query'}."
+        except Exception as e:
+            print(f"LLM error: {e}")
+            response = "I encountered an issue generating a response. Please try again."
 
-        # Save to history
-        history = get_history(req.session_id)
         history.append({"role": "Human", "content": req.message})
         history.append({"role": "Assistant", "content": response})
-        
-        # Remove duplicate sources
-        sources = list(set(sources))
-        
-        latency_ms = int((time.time() - start_time) * 1000)
-        
+
         return ChatResp(
             answer=response,
-            sources=sources,
-            used_chunks=len(docs),
-            latency_ms=latency_ms
+            sources=list(set(sources)),
+            used_chunks=used_chunks,
+            latency_ms=int((time.time() - start_time) * 1000)
         )
-        
+
     except Exception as e:
-        print(f"Chat error: {str(e)}")  # Debug logging
+        print(f"Chat error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 @app.get("/health")
